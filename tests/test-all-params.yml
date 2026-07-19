@@ -1,0 +1,55 @@
+name: Test all parameters combined
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Mock the gh CLI to capture args and verify both --comment and --delete-branch flags are passed
+      - name: Mock gh CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/gh" << 'EOF'
+          #!/bin/bash
+          echo "mock gh called with args: $@"
+          # Verify both --comment and --delete-branch flags are present
+          FOUND_COMMENT=false
+          FOUND_DELETE=false
+          for arg in "$@"; do
+            if [ "$arg" = "--comment" ]; then
+              FOUND_COMMENT=true
+            fi
+            if [ "$arg" = "--delete-branch" ]; then
+              FOUND_DELETE=true
+            fi
+          done
+          if [ "$FOUND_COMMENT" = "false" ]; then
+            echo "FAIL: expected --comment flag in gh pr close args"
+            exit 1
+          fi
+          if [ "$FOUND_DELETE" = "false" ]; then
+            echo "FAIL: expected --delete-branch flag in gh pr close args"
+            exit 1
+          fi
+          echo "MOCK: gh pr close with --comment and --delete-branch called successfully"
+          exit 0
+          EOF
+          chmod +x "$HOME/.local/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token
+          repository: owner/repo
+          pull-request-number: '42'
+          comment: 'Closing this PR as it is no longer needed.'
+          delete-branch: 'true'
+        env:
+          GH_TOKEN: fake-token
+
+      - name: Assert action completed with all params
+        run: |
+          echo "PASS: action completed with all parameters"

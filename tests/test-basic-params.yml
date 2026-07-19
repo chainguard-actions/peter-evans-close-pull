@@ -1,0 +1,39 @@
+name: Test basic params - no optional inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Mock the gh CLI so the action doesn't need real GitHub credentials
+      - name: Mock gh CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/gh" << 'EOF'
+          #!/bin/bash
+          echo "mock gh called with args: $@"
+          # Verify expected args: gh pr close -R <repo> <pr-number>
+          if [ "$1" = "pr" ] && [ "$2" = "close" ]; then
+            echo "MOCK: gh pr close called successfully"
+            exit 0
+          fi
+          echo "MOCK: unexpected gh command: $@"
+          exit 1
+          EOF
+          chmod +x "$HOME/.local/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token
+          repository: owner/repo
+          pull-request-number: '42'
+        env:
+          GH_TOKEN: fake-token
+
+      - name: Assert action completed successfully
+        run: |
+          echo "PASS: action completed without error"

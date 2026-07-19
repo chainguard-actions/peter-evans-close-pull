@@ -1,0 +1,60 @@
+name: Test basic close pull request
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install mock gh CLI
+        run: |
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/gh << 'EOF'
+          #!/bin/sh
+          # Record the call arguments
+          echo "$@" > /tmp/gh-call-args.txt
+          echo "mock gh called with: $@"
+          # Simulate success
+          exit 0
+          EOF
+          chmod +x /tmp/mock-bin/gh
+          echo "/tmp/mock-bin" >> $GITHUB_PATH
+
+      - id: action
+        uses: .
+        with:
+          repository: owner/repo
+          pull-request-number: '42'
+
+      - name: Assert gh pr close was called correctly
+        run: |
+          echo "gh call args:"
+          cat /tmp/gh-call-args.txt
+          ARGS=$(cat /tmp/gh-call-args.txt)
+          # Should contain 'pr close'
+          if ! echo "$ARGS" | grep -q "pr close"; then
+            echo "FAIL: expected 'pr close' in args"
+            exit 1
+          fi
+          # Should contain the repository
+          if ! echo "$ARGS" | grep -q "owner/repo"; then
+            echo "FAIL: expected 'owner/repo' in args"
+            exit 1
+          fi
+          # Should contain the PR number
+          if ! echo "$ARGS" | grep -q "42"; then
+            echo "FAIL: expected '42' in args"
+            exit 1
+          fi
+          # Should NOT contain --comment
+          if echo "$ARGS" | grep -q "\-\-comment"; then
+            echo "FAIL: did not expect '--comment' in args"
+            exit 1
+          fi
+          # Should NOT contain --delete-branch
+          if echo "$ARGS" | grep -q "\-\-delete-branch"; then
+            echo "FAIL: did not expect '--delete-branch' in args"
+            exit 1
+          fi
+          echo "PASS"
