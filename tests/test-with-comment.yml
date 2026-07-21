@@ -1,0 +1,27 @@
+name: Test close-pull with comment on invalid PR
+on:
+  workflow_dispatch:
+jobs:
+  test-with-comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Attempt to close a non-existent PR with a comment
+        id: close
+        uses: .
+        with:
+          pull-request-number: 999999
+          comment: "Closing this PR automatically."
+        continue-on-error: true
+
+      - name: Assert action failed for non-existent PR (with comment input)
+        env:
+          OUTCOME: ${{ steps.close.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "FAIL: expected action to fail for non-existent PR, but got outcome: $OUTCOME"
+            exit 1
+          fi
+          echo "PASS: action correctly failed for non-existent PR when comment is provided"

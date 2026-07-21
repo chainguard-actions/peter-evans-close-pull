@@ -1,0 +1,43 @@
+name: Test basic usage - no comment, no delete-branch
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Mock the gh CLI so the action doesn't fail trying to close a real PR
+      - name: Mock gh CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/gh" << 'EOF'
+          #!/bin/bash
+          echo "gh called with args: $*"
+          # Verify no --comment or --delete-branch flags are passed
+          for arg in "$@"; do
+            if [ "$arg" = "--comment" ]; then
+              echo "FAIL: --comment flag should not be present"
+              exit 1
+            fi
+            if [ "$arg" = "--delete-branch" ]; then
+              echo "FAIL: --delete-branch flag should not be present"
+              exit 1
+            fi
+          done
+          echo "PASS: no unexpected flags"
+          exit 0
+          EOF
+          chmod +x "$HOME/.local/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token
+          repository: owner/repo
+          pull-request-number: '42'
+
+      - name: Assert action completed successfully
+        run: |
+          echo "PASS: action completed without error"

@@ -1,0 +1,43 @@
+name: Test with delete-branch enabled
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Mock the gh CLI to capture arguments and verify --delete-branch is passed
+      - name: Mock gh CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/gh" << 'EOF'
+          #!/bin/bash
+          echo "gh called with args: $*"
+          FOUND_DELETE_BRANCH=false
+          for arg in "$@"; do
+            if [ "$arg" = "--delete-branch" ]; then
+              FOUND_DELETE_BRANCH=true
+            fi
+          done
+          if [ "$FOUND_DELETE_BRANCH" = false ]; then
+            echo "FAIL: --delete-branch flag was not passed to gh"
+            exit 1
+          fi
+          echo "PASS: --delete-branch flag found"
+          exit 0
+          EOF
+          chmod +x "$HOME/.local/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token
+          repository: owner/repo
+          pull-request-number: '42'
+          delete-branch: 'true'
+
+      - name: Assert action completed successfully
+        run: |
+          echo "PASS: action with delete-branch completed without error"

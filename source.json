@@ -1,6 +1,11 @@
 {
   "owner": "peter-evans",
   "repo": "close-pull",
-  "version": "",
-  "url": "https://github.com/peter-evans/close-pull"
+  "version": "v3.0.1",
+  "commit_sha": "a192af8d70f2d49c49643134605c3b73d4f80fae",
+  "url": "https://github.com/peter-evans/close-pull",
+  "policy_sha": "d636be7e43ef829af6e853da6b3c7566db9f72fe",
+  "test_policy_sha": "843adf9e4b8f85d0c08b27b9d0b09dd094b54702",
+  "test_agent_version": "2",
+  "harden_agent_version": "2"
 }
