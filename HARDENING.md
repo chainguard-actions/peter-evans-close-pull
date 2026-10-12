@@ -10,52 +10,52 @@
 
 **Harden Agent Version:** `2`
 
-Action **peter-evans--close-pull/v3.0.1** was hardened automatically. 9 finding(s) were identified and resolved across 1 iteration(s).
+Action **peter-evans--close-pull/v3.0.1** was hardened automatically. 7 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Rule (a): Direct ${{ }} expression interpolation inside run: shell commands. In action.yml 'Set Parameters' step, ${{ inputs.comment }} and ${{ inputs.delete-branch }} are interpolated directly into shell commands. In the 'Close Pull' step, ${{ inputs.repository }}, ${{ steps.params.outputs.comment }}, ${{ steps.params.outputs.delete-branch }}, and ${{ inputs.pull-request-number }} are all interpolated directly into the gh pr close command. In update-major-version.yml, ${{ github.event.inputs.main_version }} and ${{ github.event.inputs.target }} are interpolated directly into git tag and git push run: commands, allowing an attacker to inject arbitrary shell commands via workflow_dispatch inputs.
+Multiple `${{ ... }}` expressions are directly interpolated inside `run:` shell command strings in action.yml, violating sub-rule (a). This allows an attacker to inject arbitrary shell commands via user-controlled inputs.
+
+Violating lines in the 'Set Parameters' step:
+- Line 24: `if [ -n "${{ inputs.comment }}" ]; then` — inputs.comment interpolated directly into shell condition
+- Line 25: `comment="--comment \"${{ inputs.comment }}\""` — inputs.comment interpolated into shell variable assignment
+- Line 31: `if [ "${{ inputs.delete-branch }}" = true ]; then` — inputs.delete-branch interpolated directly
+
+Violating lines in the 'Close Pull' step:
+- Line 37: `gh pr close -R "${{ inputs.repository }}"` — inputs.repository interpolated directly
+- Line 38: `${{ steps.params.outputs.comment }}` — steps output interpolated directly AND unquoted (sub-rule b)
+- Line 39: `${{ steps.params.outputs.delete-branch }}` — steps output interpolated directly AND unquoted (sub-rule b)
+- Line 40: `"${{ inputs.pull-request-number }}"` — inputs.pull-request-number interpolated directly
+
+All these values should be passed via `env:` variables and referenced as quoted shell variables (e.g., `"$INPUT_COMMENT"`) instead.
 
 Locations:
 
-- `action.yml:22`
-- `action.yml:35`
-- `.github/workflows/update-major-version.yml:18`
-- `.github/workflows/update-major-version.yml:20`
+- `action.yml:24`
+- `action.yml:25`
+- `action.yml:31`
+- `action.yml:37`
+- `action.yml:38`
+- `action.yml:39`
+- `action.yml:40`
 
 ### github-env-injection (severity: high)
 
-In action.yml 'Set Parameters' step, ${{ inputs.comment }} is interpolated into the shell variable 'comment' and then written to $GITHUB_OUTPUT via 'echo "$comment" >> $GITHUB_OUTPUT' without the required sanitization step (printf '%s' ... | tr -d '\n\r'). An attacker-controlled newline in inputs.comment could inject arbitrary key=value pairs into GITHUB_OUTPUT, poisoning subsequent steps. Similarly, ${{ inputs.delete-branch }} controls a write to $GITHUB_OUTPUT without sanitization.
+The 'Set Parameters' step writes values derived from untrusted inputs to `$GITHUB_OUTPUT` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`).
+
+- Line 28: `echo "$comment" >> $GITHUB_OUTPUT` — the shell variable `$comment` was constructed from `${{ inputs.comment }}` (line 25). A newline embedded in `inputs.comment` can inject additional key=value pairs into GITHUB_OUTPUT, allowing an attacker to override subsequent step outputs.
+- Line 32: `echo delete-branch="--delete-branch" >> $GITHUB_OUTPUT` — this write is gated on `${{ inputs.delete-branch }}` being interpolated directly into the shell condition (line 31); the condition itself is injection-vulnerable.
+
+The fix requires sanitizing the value before writing: `safe=$(printf '%s' "$comment" | tr -d '\n\r'); echo "comment=$safe" >> "$GITHUB_OUTPUT"`.
 
 Locations:
 
-- `action.yml:22`
-
-### unpinned-uses (severity: high)
-
-Multiple workflow files reference GitHub Actions using mutable version tags instead of immutable full 40-character SHA commit hashes, making them vulnerable to supply-chain attacks if the tag is moved. Failing references: automerge-dependabot.yml: 'peter-evans/enable-pull-request-automerge@v3'; ci.yml: 'actions/checkout@v3', 'actions/upload-artifact@v3', 'peter-evans/create-pull-request@v5', 'actions/download-artifact@v3'; slash-command-dispatch.yml: 'peter-evans/slash-command-dispatch@v3'; update-major-version.yml: 'actions/checkout@v3'.
-
-Locations:
-
-- `.github/workflows/automerge-dependabot.yml:9`
-- `.github/workflows/ci.yml:18`
-- `.github/workflows/ci.yml:19`
-- `.github/workflows/ci.yml:30`
-- `.github/workflows/ci.yml:44`
-- `.github/workflows/slash-command-dispatch.yml:8`
-- `.github/workflows/update-major-version.yml:14`
-
-### missing-permissions (severity: medium)
-
-Three workflow files have no top-level 'permissions:' key and no job-level 'permissions:' key on any job, meaning they run with the default (potentially broad) GITHUB_TOKEN permissions. automerge-dependabot.yml, slash-command-dispatch.yml, and update-major-version.yml all lack any permissions declaration.
-
-Locations:
-
-- `.github/workflows/automerge-dependabot.yml:1`
-- `.github/workflows/slash-command-dispatch.yml:1`
-- `.github/workflows/update-major-version.yml:1`
+- `action.yml:27`
+- `action.yml:28`
+- `action.yml:29`
+- `action.yml:32`
 
 ### static-inline-injection (severity: high)
 
@@ -101,19 +101,13 @@ Locations:
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, github-env-injection, unpinned-uses, missing-permissions, static-inline-injection
+**Fixes applied:** script-injection, github-env-injection, static-inline-injection
 
 **Notes:**
 
-Fixed all findings across action.yml and 4 workflow files:
+Fixed all findings in action.yml:
 
-1. action.yml (script-injection, static-inline-injection, github-env-injection): Moved all ${{ inputs.* }} and ${{ steps.params.outputs.* }} expressions out of run: blocks into env: blocks. Sanitized comment output with printf/tr before writing to $GITHUB_OUTPUT. Used heredoc delimiter for multi-line comment output. Rewrote 'Close Pull' step to use a bash array (args=()) to build gh pr close arguments safely, keeping --comment and its value as separate array elements.
+1. **Set Parameters step**: Moved `inputs.comment` to `INPUT_COMMENT` env var and `inputs.delete-branch` to `INPUT_DELETE_BRANCH` env var. Shell now references `$INPUT_COMMENT` and `$INPUT_DELETE_BRANCH`. Sanitized the comment with `printf '%s' "$INPUT_COMMENT" | tr -d '\n\r'` before writing to GITHUB_OUTPUT (github-env-injection fix).
 
-2. update-major-version.yml (script-injection, missing-permissions, unpinned-uses): Moved ${{ github.event.inputs.main_version }} and ${{ github.event.inputs.target }} to env: blocks. Added 'permissions: contents: write'. Pinned actions/checkout@v3 to full SHA a37ce9120846195fa4ece8f58b268e6043cb2f26.
-
-3. automerge-dependabot.yml (missing-permissions, unpinned-uses): Added 'permissions: pull-requests: write, contents: write'. Pinned peter-evans/enable-pull-request-automerge@v3 to SHA a660677d5469627102a1c1e11409dd063606628d.
-
-4. ci.yml (unpinned-uses): Pinned all 4 unpinned actions to full SHAs (actions/checkout, actions/upload-artifact, peter-evans/create-pull-request, actions/download-artifact).
-
-5. slash-command-dispatch.yml (missing-permissions, unpinned-uses): Added 'permissions: issues: write, pull-requests: write'. Pinned peter-evans/slash-command-dispatch@v3 to SHA f996d7b7aae9059759ac55e978cff76d91853301.
+2. **Close Pull step**: Moved `inputs.repository` → `INPUT_REPOSITORY`, `inputs.pull-request-number` → `INPUT_PULL_REQUEST_NUMBER`, `steps.params.outputs.comment` → `PARAM_COMMENT`, `steps.params.outputs.delete-branch` → `PARAM_DELETE_BRANCH` into the env: block. Since PARAM_COMMENT and PARAM_DELETE_BRANCH are argument lists (e.g., `--comment text` and `--delete-branch`), used the xargs-based null-delimited tokenization pattern with bash arrays and proper empty-value guards to safely expand them as separate arguments to `gh pr close`.
 

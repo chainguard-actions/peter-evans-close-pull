@@ -43,30 +43,36 @@ runs:
         INPUT_DELETE_BRANCH: ${{ inputs.delete-branch }}
       run: |
         if [ -n "$INPUT_COMMENT" ]; then
+          safe_comment="$(printf '%s' "$INPUT_COMMENT" | tr -d '\n\r')"
           delimiter="$(openssl rand -hex 8)"
-          safe_comment=$(printf '%s' "$INPUT_COMMENT" | tr -d '\n\r')
           echo "comment<<$delimiter" >> "$GITHUB_OUTPUT"
-          echo "$safe_comment" >> "$GITHUB_OUTPUT"
+          echo "--comment $safe_comment" >> "$GITHUB_OUTPUT"
           echo "$delimiter" >> "$GITHUB_OUTPUT"
         fi
         if [ "$INPUT_DELETE_BRANCH" = true ]; then
-          echo "delete-branch=true" >> "$GITHUB_OUTPUT"
+          echo 'delete-branch=--delete-branch' >> "$GITHUB_OUTPUT"
         fi
     - name: Close Pull
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
-        INPUT_PR_NUMBER: ${{ inputs.pull-request-number }}
-        PARAMS_COMMENT: ${{ steps.params.outputs.comment }}
-        PARAMS_DELETE_BRANCH: ${{ steps.params.outputs.delete-branch }}
+        INPUT_PULL_REQUEST_NUMBER: ${{ inputs.pull-request-number }}
+        PARAM_COMMENT: ${{ steps.params.outputs.comment }}
+        PARAM_DELETE_BRANCH: ${{ steps.params.outputs.delete-branch }}
       run: |
         args=()
-        [ -n "$PARAMS_COMMENT" ] && args+=(--comment "$PARAMS_COMMENT")
-        [ "$PARAMS_DELETE_BRANCH" = true ] && args+=(--delete-branch)
+        if [ -n "$PARAM_COMMENT" ]; then
+          while IFS= read -r -d '' t; do args+=("$t"); done \
+            < <(printf '%s' "$PARAM_COMMENT" | xargs printf '%s\0')
+        fi
+        if [ -n "$PARAM_DELETE_BRANCH" ]; then
+          while IFS= read -r -d '' t; do args+=("$t"); done \
+            < <(printf '%s' "$PARAM_DELETE_BRANCH" | xargs printf '%s\0')
+        fi
         gh pr close -R "$INPUT_REPOSITORY" \
           "${args[@]}" \
-          "$INPUT_PR_NUMBER"
+          "$INPUT_PULL_REQUEST_NUMBER"
 branding:
   icon: 'git-pull-request'
   color: 'gray-dark'
