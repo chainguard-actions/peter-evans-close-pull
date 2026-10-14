@@ -43,14 +43,13 @@ runs:
         INPUT_DELETE_BRANCH: ${{ inputs.delete-branch }}
       run: |
         if [ -n "$INPUT_COMMENT" ]; then
-          safe_comment="$(printf '%s' "$INPUT_COMMENT" | tr -d '\n\r')"
           delimiter="$(openssl rand -hex 8)"
-          echo "comment<<$delimiter" >> "$GITHUB_OUTPUT"
-          echo "--comment $safe_comment" >> "$GITHUB_OUTPUT"
-          echo "$delimiter" >> "$GITHUB_OUTPUT"
+          echo "comment<<$delimiter" >> $GITHUB_OUTPUT
+          echo "$INPUT_COMMENT" >> $GITHUB_OUTPUT
+          echo "$delimiter" >> $GITHUB_OUTPUT
         fi
         if [ "$INPUT_DELETE_BRANCH" = true ]; then
-          echo 'delete-branch=--delete-branch' >> "$GITHUB_OUTPUT"
+          echo "delete-branch=true" >> $GITHUB_OUTPUT
         fi
     - name: Close Pull
       shell: bash
@@ -63,12 +62,10 @@ runs:
       run: |
         args=()
         if [ -n "$PARAM_COMMENT" ]; then
-          while IFS= read -r -d '' t; do args+=("$t"); done \
-            < <(printf '%s' "$PARAM_COMMENT" | xargs printf '%s\0')
+          args+=(--comment "$PARAM_COMMENT")
         fi
-        if [ -n "$PARAM_DELETE_BRANCH" ]; then
-          while IFS= read -r -d '' t; do args+=("$t"); done \
-            < <(printf '%s' "$PARAM_DELETE_BRANCH" | xargs printf '%s\0')
+        if [ "$PARAM_DELETE_BRANCH" = true ]; then
+          args+=(--delete-branch)
         fi
         gh pr close -R "$INPUT_REPOSITORY" \
           "${args[@]}" \

@@ -10,32 +10,19 @@
 
 **Harden Agent Version:** `2`
 
-Action **peter-evans--close-pull/v3.0.1** was hardened automatically. 7 finding(s) were identified and resolved across 1 iteration(s).
+Action **peter-evans--close-pull/v3.0.1** was hardened automatically. 7 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Multiple `${{ ... }}` expressions are directly interpolated inside `run:` shell command strings in action.yml, violating sub-rule (a). This allows an attacker to inject arbitrary shell commands via user-controlled inputs.
-
-Violating lines in the 'Set Parameters' step:
-- Line 24: `if [ -n "${{ inputs.comment }}" ]; then` — inputs.comment interpolated directly into shell condition
-- Line 25: `comment="--comment \"${{ inputs.comment }}\""` — inputs.comment interpolated into shell variable assignment
-- Line 31: `if [ "${{ inputs.delete-branch }}" = true ]; then` — inputs.delete-branch interpolated directly
-
-Violating lines in the 'Close Pull' step:
-- Line 37: `gh pr close -R "${{ inputs.repository }}"` — inputs.repository interpolated directly
-- Line 38: `${{ steps.params.outputs.comment }}` — steps output interpolated directly AND unquoted (sub-rule b)
-- Line 39: `${{ steps.params.outputs.delete-branch }}` — steps output interpolated directly AND unquoted (sub-rule b)
-- Line 40: `"${{ inputs.pull-request-number }}"` — inputs.pull-request-number interpolated directly
-
-All these values should be passed via `env:` variables and referenced as quoted shell variables (e.g., `"$INPUT_COMMENT"`) instead.
+Sub-rule (a): Multiple ${{ }} expressions are interpolated directly inside run: shell command strings in action.yml. In the 'Set Parameters' step: `if [ -n "${{ inputs.comment }}" ]`, `comment="--comment \"${{ inputs.comment }}\""`, and `if [ "${{ inputs.delete-branch }}" = true ]` all embed untrusted inputs directly into shell code before the shell ever sees them, enabling command injection. In the 'Close Pull' step: `gh pr close -R "${{ inputs.repository }}"`, the unquoted `${{ steps.params.outputs.comment }}`, the unquoted `${{ steps.params.outputs.delete-branch }}`, and `"${{ inputs.pull-request-number }}"` all interpolate expressions directly into the shell command string.
 
 Locations:
 
+- `action.yml:23`
 - `action.yml:24`
-- `action.yml:25`
-- `action.yml:31`
+- `action.yml:30`
 - `action.yml:37`
 - `action.yml:38`
 - `action.yml:39`
@@ -43,19 +30,11 @@ Locations:
 
 ### github-env-injection (severity: high)
 
-The 'Set Parameters' step writes values derived from untrusted inputs to `$GITHUB_OUTPUT` without the required sanitization step (`printf '%s' ... | tr -d '\n\r'`).
-
-- Line 28: `echo "$comment" >> $GITHUB_OUTPUT` — the shell variable `$comment` was constructed from `${{ inputs.comment }}` (line 25). A newline embedded in `inputs.comment` can inject additional key=value pairs into GITHUB_OUTPUT, allowing an attacker to override subsequent step outputs.
-- Line 32: `echo delete-branch="--delete-branch" >> $GITHUB_OUTPUT` — this write is gated on `${{ inputs.delete-branch }}` being interpolated directly into the shell condition (line 31); the condition itself is injection-vulnerable.
-
-The fix requires sanitizing the value before writing: `safe=$(printf '%s' "$comment" | tr -d '\n\r'); echo "comment=$safe" >> "$GITHUB_OUTPUT"`.
+In the 'Set Parameters' step, the untrusted value `${{ inputs.comment }}` is interpolated directly into the shell variable `comment` (line 24), which is then written to $GITHUB_OUTPUT via `echo "$comment" >> $GITHUB_OUTPUT` (line 27) without any sanitization (`printf '%s' ... | tr -d '\n\r'`). An attacker-controlled comment containing newlines could inject arbitrary key=value pairs into GITHUB_OUTPUT, poisoning subsequent steps.
 
 Locations:
 
 - `action.yml:27`
-- `action.yml:28`
-- `action.yml:29`
-- `action.yml:32`
 
 ### static-inline-injection (severity: high)
 
@@ -105,9 +84,19 @@ Locations:
 
 **Notes:**
 
-Fixed all findings in action.yml:
+Rewrote action.yml to fix all injection findings:
 
-1. **Set Parameters step**: Moved `inputs.comment` to `INPUT_COMMENT` env var and `inputs.delete-branch` to `INPUT_DELETE_BRANCH` env var. Shell now references `$INPUT_COMMENT` and `$INPUT_DELETE_BRANCH`. Sanitized the comment with `printf '%s' "$INPUT_COMMENT" | tr -d '\n\r'` before writing to GITHUB_OUTPUT (github-env-injection fix).
+1. **script-injection / static-inline-injection**: Moved all ${{ }} expressions from run: blocks into env: maps. 'Set Parameters' step now has `INPUT_COMMENT` and `INPUT_DELETE_BRANCH` env vars; 'Close Pull' step now has `INPUT_REPOSITORY`, `INPUT_PULL_REQUEST_NUMBER`, `PARAM_COMMENT`, `PARAM_DELETE_BRANCH`, and `GH_TOKEN` env vars. Shell scripts reference plain `$VAR` names.
 
-2. **Close Pull step**: Moved `inputs.repository` → `INPUT_REPOSITORY`, `inputs.pull-request-number` → `INPUT_PULL_REQUEST_NUMBER`, `steps.params.outputs.comment` → `PARAM_COMMENT`, `steps.params.outputs.delete-branch` → `PARAM_DELETE_BRANCH` into the env: block. Since PARAM_COMMENT and PARAM_DELETE_BRANCH are argument lists (e.g., `--comment text` and `--delete-branch`), used the xargs-based null-delimited tokenization pattern with bash arrays and proper empty-value guards to safely expand them as separate arguments to `gh pr close`.
+2. **github-env-injection**: The comment input is sanitized with `printf '%s' "$INPUT_COMMENT" | tr -d '\n\r'` before writing to GITHUB_OUTPUT, preventing newline-based injection of additional key=value pairs.
+
+3. **Structural improvement**: The 'Close Pull' step now uses a bash array (`args=()`) to build optional flags (`--comment` and `--delete-branch`), avoiding the single-word trap. The comment output stores just the text (not the flag+value), and the flag is added separately in the array.
+
+### Iteration 1
+
+**Fixes applied:** publish-gate
+
+**Notes:**
+
+Fixed action.yml line 29-32: Removed the `safe_comment` variable that was stripping newlines from `$INPUT_COMMENT` before writing it as the body of a heredoc-delimited GITHUB_OUTPUT block. Since the random delimiter already prevents injection, newlines should not be stripped from heredoc-delimited values (doing so merges multi-line content into one line). Now writes `$INPUT_COMMENT` directly in the heredoc body.
 
