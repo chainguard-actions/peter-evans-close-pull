@@ -49,6 +49,7 @@ runs:
         if [ "$INPUT_DELETE_BRANCH" = true ]; then
           echo "delete-branch=true" >> "$GITHUB_OUTPUT"
         fi
+
     - name: Close Pull
       shell: bash
       env:
