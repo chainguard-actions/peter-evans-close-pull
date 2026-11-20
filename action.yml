@@ -43,14 +43,17 @@ runs:
         INPUT_DELETE_BRANCH: ${{ inputs.delete-branch }}
       run: |
         if [ -n "$INPUT_COMMENT" ]; then
-          delimiter="$(openssl rand -hex 8)"
-          echo "comment<<$delimiter" >> $GITHUB_OUTPUT
-          echo "$INPUT_COMMENT" >> $GITHUB_OUTPUT
-          echo "$delimiter" >> $GITHUB_OUTPUT
+          delimiter="EOF_$(openssl rand -hex 16)"
+          {
+            echo "comment<<$delimiter"
+            printf '%s\n' "$INPUT_COMMENT"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
         fi
         if [ "$INPUT_DELETE_BRANCH" = true ]; then
-          echo "delete-branch=true" >> $GITHUB_OUTPUT
+          echo "delete-branch=true" >> "$GITHUB_OUTPUT"
         fi
+
     - name: Close Pull
       shell: bash
       env:
